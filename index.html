@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TacFile // OPS-GRID</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #050505;
+            --bg-secondary: #0a0a0a;
+            --bg-card: rgba(15, 15, 20, 0.9);
+            --border: rgba(0, 255, 65, 0.2);
+            --border-bright: rgba(0, 255, 65, 0.6);
+            --matrix-green: #00ff41;
+            --matrix-dim: #003b00;
+            --text-primary: #00ff41;
+            --text-secondary: #008f11;
+            --text-muted: #003b00;
+            --warning: #ffb000;
+            --danger: #ff0000;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+        }
+
+        /* ─── MATRIX BACKGROUND ─── */
+        #matrix-canvas {
+            position: fixed; inset: 0; z-index: -1;
+            opacity: 0.12; filter: blur(0.5px);
+        }
+
+        /* ─── SCANLINE EFFECT ─── */
+        body::after {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 1000;
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* ─── AUTH SCREEN ─── */
+        #auth-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: var(--bg-primary);
+            padding: 2rem;
+        }
+
+        .auth-title {
+            font-size: 2.8rem; font-weight: 800;
+            letter-spacing: -2px;
+            text-transform: uppercase;
+            color: var(--matrix-green);
+            margin-bottom: 0.5rem;
+        }
+        
+        .auth-title span { color: #fff; text-shadow: 0 0 15px #fff; }
+
+        .auth-sub {
+            font-size: 0.75rem; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.4em;
+            text-align: center; margin-bottom: 2rem;
+        }
+
+        .pin-display {
+            display: flex; gap: 15px;
+            margin-bottom: 2.5rem;
+        }
+        .pin-dot {
+            width: 14px; height: 14px;
+            border: 1px solid var(--matrix-green);
+            background: transparent;
+            transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .pin-dot.filled {
+            background: var(--matrix-green);
+            box-shadow: 0 0 15px var(--matrix-green);
+            transform: scale(1.2);
+        }
+
+        .numpad {
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 12px; width: 100%; max-width: 300px;
+        }
+        .numpad-btn {
+            aspect-ratio: 1.3;
+            background: rgba(0, 255, 65, 0.03);
+            border: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.6rem; color: var(--matrix-green);
+            cursor: pointer; transition: all 0.1s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .numpad-btn:active {
+            background: var(--matrix-green);
+            color: var(--bg-primary);
+            box-shadow: 0 0 25px var(--matrix-green);
+            transform: scale(0.95);
+        }
+
+        /* ─── MAIN APP ─── */
+        #main-app { display: none; min-height: 100vh; }
+
+        .header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-bright);
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(0,0,0,0.9);
+            position: sticky; top: 0; z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-brand { font-weight: 800; font-size: 1.3rem; letter-spacing: 1px; }
+
+        .grid-container {
+            max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 140px;
+        }
+
+        .terminal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 1.2rem; margin-bottom: 2rem;
+            position: relative;
+        }
+        .terminal-box::before {
+            content: "[ CRYPTO_VAULT_STATUS ]";
+            position: absolute; top: -10px; left: 15px;
+            background: var(--bg-primary);
+            font-size: 0.65rem; padding: 0 8px; color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+        }
+        .stat-item { border-left: 3px solid var(--matrix-green); padding-left: 12px; }
+        .stat-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; }
+        .stat-value { font-size: 1.4rem; font-weight: 800; }
+
+        .upload-trigger {
+            border: 2px dashed var(--border-bright);
+            padding: 2.5rem; text-align: center;
+            cursor: pointer; transition: all 0.3s;
+            margin-bottom: 2rem;
+            background: rgba(0, 255, 65, 0.02);
+        }
+        .upload-trigger:hover { 
+            background: rgba(0, 255, 65, 0.08); 
+            border-color: var(--matrix-green);
+        }
+
+        #file-list { display: flex; flex-direction: column; gap: 10px; }
+        .file-row {
+            display: flex; align-items: center; gap: 15px;
+            padding: 15px; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.02);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .file-row:hover {
+            background: rgba(0, 255, 65, 0.1);
+            border-color: var(--matrix-green);
+        }
+        .file-icon { color: var(--matrix-green); font-weight: 800; }
+        .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
+        .file-meta { font-size: 0.75rem; color: var(--text-secondary); }
+
+        .modal-overlay {
+            position: fixed; inset: 0; z-index: 500;
+            background: rgba(0,0,0,0.95);
+            display: none; align-items: center; justify-content: center;
+            padding: 1.5rem;
+            backdrop-filter: blur(5px);
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-content {
+            width: 100%; max-width: 500px;
+            border: 1px solid var(--matrix-green);
+            background: var(--bg-secondary);
+            padding: 2rem;
+        }
+        .modal-btn {
+            display: block; width: 100%; padding: 14px;
+            margin-top: 12px; background: transparent;
+            border: 1px solid var(--matrix-green);
+            color: var(--matrix-green); font-family: inherit;
+            font-weight: 700; cursor: pointer; text-transform: uppercase;
+        }
+        .modal-btn:hover { background: var(--matrix-green); color: #000; }
+
+        #toast {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            background: var(--matrix-green); color: #000;
+            padding: 8px 20px; font-size: 0.85rem; font-weight: 800;
+            display: none; z-index: 1000;
+        }
+        #loading {
+            position: fixed; inset: 0; background: #000; z-index: 1000;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            color: var(--matrix-green); gap: 20px;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 2px solid var(--matrix-dim);
+            border-top: 2px solid var(--matrix-green); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+
+    </style>
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+
+<!-- ═══ AUTH SCREEN ═══ -->
+<div id="auth-screen">
+    <div class="glitch-wrapper">
+        <h1 class="auth-title">TAC<span>FILE</span></h1>
+        <p class="auth-sub">// GAUTENG OPS-GRID v4.2.0</p>
+    </div>
+
+    <div class="pin-display">
+        <div class="pin-dot" id="dot-0"></div><div class="pin-dot" id="dot-1"></div><div class="pin-dot" id="dot-2"></div>
+        <div class="pin-dot" id="dot-3"></div><div class="pin-dot" id="dot-4"></div><div class="pin-dot" id="dot-5"></div>
+    </div>
+
+    <div class="numpad">
+        <button class="numpad-btn" onclick="numpadPress(1)">1</button><button class="numpad-btn" onclick="numpadPress(2)">2</button><button class="numpad-btn" onclick="numpadPress(3)">3</button>
+        <button class="numpad-btn" onclick="numpadPress(4)">4</button><button class="numpad-btn" onclick="numpadPress(5)">5</button><button class="numpad-btn" onclick="numpadPress(6)">6</button>
+        <button class="numpad-btn" onclick="numpadPress(7)">7</button><button class="numpad-btn" onclick="numpadPress(8)">8</button><button class="numpad-btn" onclick="numpadPress(9)">9</button>
+        <button class="numpad-btn" style="color:var(--danger)" onclick="numpadClear()">DEL</button><button class="numpad-btn" onclick="numpadPress(0)">0</button><button class="numpad-btn" style="color:var(--matrix-green)" onclick="verifyPin()">RUN</button>
+    </div>
+</div>
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="main-app">
+    <header class="header">
+        <div class="header-brand">> TACFILE_PRO</div>
+        <div id="user-display" style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 700">HANDSHAKING...</div>
+    </header>
+
+    <div class="grid-container">
+        <div class="terminal-box">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Intel Packets</div>
+                    <div class="stat-value" id="stat-count">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Grid Load</div>
+                    <div class="stat-value" id="stat-size">0.00 MB</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="upload-trigger" onclick="triggerUpload()">
+            [ INJECT_NEW_INTEL_PAYLOAD ]
+        </div>
+        <input type="file" id="file-input" class="hidden" multiple>
+
+        <div id="file-list"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal-content">
+        <div id="modal-preview" style="text-align:center; margin-bottom: 25px;"></div>
+        <div id="modal-name" style="margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; font-weight: 700;"></div>
+        <button class="modal-btn" id="btn-dl">DECRYPT_&_EXTRACT</button>
+        <button class="modal-btn" style="border-color:var(--danger); color:var(--danger)" id="btn-del">PURGE_DATA_STREAM</button>
+        <button class="modal-btn" onclick="closeModal()">ABORT_COMMAND</button>
+    </div>
+</div>
+
+<div id="loading">
+    <div class="spinner"></div>
+    <div id="loading-text">COMMUNICATING_WITH_GRID...</div>
+</div>
+<div id="toast">SYSTEM_MESSAGE</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ── FIREBASE RE-INIT LOGIC ──
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'tacfile-ops-grid-final';
+    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    
+    let db, auth, user = null;
+    let assets = [];
+    let pin = "";
+    const MASTER_PIN = "926130";
+
+    // ── MATRIX EFFECT ──
+    const canvas = document.getElementById('matrix-canvas');
+    const ctx = canvas.getContext('2d');
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    window.addEventListener('resize', resize); resize();
+    const letters = "01";
+    const fontSize = 16;
+    let drops = Array(Math.floor(canvas.width / fontSize)).fill(1);
+    function drawMatrix() {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.05)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#00ff41"; ctx.font = fontSize + "px monospace";
+        for (let i = 0; i < drops.length; i++) {
+            const text = letters.charAt(Math.floor(Math.random() * letters.length));
+            ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+            if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+    setInterval(drawMatrix, 50);
+
+    // ── PIN AUTH ──
+    window.numpadPress = (n) => { if (pin.length < 6) pin += n; updatePinDots(); if (pin.length === 6) setTimeout(verifyPin, 200); };
+    window.numpadClear = () => { pin = ""; updatePinDots(); };
+    const updatePinDots = () => { for(let i=0; i<6; i++) document.getElementById(`dot-${i}`).classList.toggle('filled', i < pin.length); };
+    
+    window.verifyPin = async () => {
+        if (pin === MASTER_PIN) {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('main-app').style.display = 'block';
+            await initFirebase();
+        } else {
+            pin = ""; updatePinDots(); showToast("ERR_AUTH: ACCESS_DENIED");
+        }
+    };
+
+    // ── FIREBASE CORE ──
+    const initFirebase = async () => {
+        if (!firebaseConfig.projectId) return showToast("OFFLINE_MODE_ACTIVE");
+        
+        const app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        // Functional Retry Logic
+        const attemptAuth = async (retries = 5, delay = 1000) => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                if (retries > 0) {
+                    setTimeout(() => attemptAuth(retries - 1, delay * 2), delay);
+                } else {
+                    showToast("CRITICAL: AUTH_GATEWAY_TIMEOUT");
+                }
+            }
+        };
+
+        await attemptAuth();
+        onAuthStateChanged(auth, (u) => {
+            user = u;
+            if (u) {
+                document.getElementById('user-display').textContent = `UID: ${u.uid.substring(0,8)}...`;
+                listenToGrid();
+            }
+        });
+    };
+
+    const listenToGrid = () => {
+        // RULE 1 & 2: Simple query on the mandatory path
+        const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'grid_assets');
+        onSnapshot(colRef, (snap) => {
+            assets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderGrid();
+        }, (err) => showToast("ERR: SNAPSHOT_FAILURE"));
+    };
+
+    const renderGrid = () => {
+        const list = document.getElementById('file-list');
+        list.innerHTML = assets.map(a => `
+            <div class="file-row" onclick="openAsset('${a.id}')">
+                <div class="file-icon">></div>
+                <div class="file-name">${a.name}</div>
+                <div class="file-meta">${(a.size/1024).toFixed(1)}KB</div>
+            </div>
+        `).join('') || '<div style="padding:40px; text-align:center; opacity:0.3">[ EMPTY_STREAMS ]</div>';
+        
+        document.getElementById('stat-count').textContent = assets.length;
+        const total = assets.reduce((s, a) => s + (a.size || 0), 0);
+        document.getElementById('stat-size').textContent = (total/1048576).toFixed(2) + " MB";
+    };
+
+    window.triggerUpload = () => document.getElementById('file-input').click();
+    
+    document.getElementById('file-input').onchange = async (e) => {
+        if (!user) return showToast("ERR: UNAUTHORIZED");
+        const files = Array.from(e.target.files);
+        setLoading(true, "INJECTING_FRAGMENTS...");
+        
+        for (const f of files) {
+            const reader = new FileReader();
+            reader.readAsDataURL(f);
+            reader.onload = async () => {
+                const id = crypto.randomUUID();
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id);
+                await setDoc(docRef, {
+                    name: f.name, size: f.size, type: f.type, data: reader.result, ts: Date.now()
+                });
+            };
+        }
+        setTimeout(() => { setLoading(false); showToast("FRAGMENT_INJECTION_SUCCESS"); }, 1000);
+    };
+
+    window.openAsset = (id) => {
+        const a = assets.find(x => x.id === id);
+        if(!a) return;
+        document.getElementById('modal-name').textContent = `DATA_OBJ: ${a.name}`;
+        const preview = document.getElementById('modal-preview');
+        preview.innerHTML = a.type.startsWith('image/') ? `<img src="${a.data}" style="max-width:100%; border:1px solid var(--matrix-green)">` : `[BINARY_BLOB]`;
+        
+        document.getElementById('btn-dl').onclick = () => {
+            const link = document.createElement('a'); link.href = a.data; link.download = a.name; link.click();
+        };
+        document.getElementById('btn-del').onclick = async () => {
+            setLoading(true, "PURGING_SECTOR...");
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id));
+            closeModal();
+            setLoading(false);
+            showToast("SECTOR_WIPE_COMPLETE");
+        };
+        document.getElementById('modal-overlay').classList.add('open');
+    };
+
+    window.closeModal = () => document.getElementById('modal-overlay').classList.remove('open');
+    const showToast = (m) => {
+        const t = document.getElementById('toast'); t.textContent = `> ${m}`; t.style.display = 'block';
+        setTimeout(() => t.style.display = 'none', 3000);
+    };
+    const setLoading = (v, txt) => {
+        document.getElementById('loading-text').textContent = txt;
+        document.getElementById('loading').style.display = v ? 'flex' : 'none';
+    };
+</script>
+  <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyCt_F9My8IEmUiewsHSVli0lfOVBPrd2g4",
+    authDomain: "tacfile-f7318.firebaseapp.com",
+    projectId: "tacfile-f7318",
+    storageBucket: "tacfile-f7318.firebasestorage.app",
+    messagingSenderId: "1028366886296",
+    appId: "1:1028366886296:web:fc25967ec7dfa4fb7f37ed",
+    measurementId: "G-WPHH8DWZX7"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+</body>
+</html>
