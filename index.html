@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TacFile // OPS-GRID</title>
+    
+    <!-- ─── PWA / MOBILE APP META TAGS ─── -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TacFile">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#050505">
+    
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -32,27 +40,25 @@
             -webkit-tap-highlight-color: transparent;
             overscroll-behavior-y: none;
             text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+            padding-top: env(safe-area-inset-top);
         }
 
-        /* ─── MATRIX BACKGROUND ─── */
         #matrix-canvas {
             position: fixed; inset: 0; z-index: -1;
             opacity: 0.12; filter: blur(0.5px);
         }
 
-        /* ─── SCANLINE EFFECT ─── */
         body::after {
             content: " ";
             display: block;
             position: fixed;
             top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 255, 0, 0.03));
             z-index: 1000;
             background-size: 100% 3px, 3px 100%;
             pointer-events: none;
         }
 
-        /* ─── AUTH SCREEN ─── */
         #auth-screen {
             position: fixed; inset: 0; z-index: 200;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -112,7 +118,6 @@
             transform: scale(0.95);
         }
 
-        /* ─── MAIN APP ─── */
         #main-app { display: none; min-height: 100vh; }
 
         .header {
@@ -158,7 +163,12 @@
             margin-bottom: 2rem;
             background: rgba(0, 255, 65, 0.02);
         }
-        .upload-trigger:hover { 
+        .upload-trigger.locked {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: var(--text-muted);
+        }
+        .upload-trigger:not(.locked):hover { 
             background: rgba(0, 255, 65, 0.08); 
             border-color: var(--matrix-green);
         }
@@ -227,7 +237,6 @@
 
 <canvas id="matrix-canvas"></canvas>
 
-<!-- ═══ AUTH SCREEN ═══ -->
 <div id="auth-screen">
     <div class="glitch-wrapper">
         <h1 class="auth-title">TAC<span>FILE</span></h1>
@@ -247,7 +256,6 @@
     </div>
 </div>
 
-<!-- ═══ MAIN APP ═══ -->
 <div id="main-app">
     <header class="header">
         <div class="header-brand">> TACFILE_PRO</div>
@@ -268,8 +276,8 @@
             </div>
         </div>
 
-        <div class="upload-trigger" onclick="triggerUpload()">
-            [ INJECT_NEW_INTEL_PAYLOAD ]
+        <div id="upload-box" class="upload-trigger locked" onclick="triggerUpload()">
+            [ AUTHENTICATING_WITH_GRID... ]
         </div>
         <input type="file" id="file-input" class="hidden" multiple>
 
@@ -298,7 +306,6 @@
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // ── FIREBASE RE-INIT LOGIC ──
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'tacfile-ops-grid-final';
     const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
     
@@ -350,7 +357,6 @@
         auth = getAuth(app);
         db = getFirestore(app);
 
-        // Functional Retry Logic
         const attemptAuth = async (retries = 5, delay = 1000) => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -367,23 +373,30 @@
             }
         };
 
-        await attemptAuth();
         onAuthStateChanged(auth, (u) => {
             user = u;
             if (u) {
                 document.getElementById('user-display').textContent = `UID: ${u.uid.substring(0,8)}...`;
+                const uploadBox = document.getElementById('upload-box');
+                uploadBox.classList.remove('locked');
+                uploadBox.textContent = "[ INJECT_NEW_INTEL_PAYLOAD ]";
                 listenToGrid();
+            } else {
+                attemptAuth();
             }
         });
     };
 
     const listenToGrid = () => {
-        // RULE 1 & 2: Simple query on the mandatory path
+        if (!user) return;
         const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'grid_assets');
         onSnapshot(colRef, (snap) => {
             assets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             renderGrid();
-        }, (err) => showToast("ERR: SNAPSHOT_FAILURE"));
+        }, (err) => {
+            console.error(err);
+            showToast("ERR: GRID_CONNECTION_LOST");
+        });
     };
 
     const renderGrid = () => {
@@ -401,25 +414,44 @@
         document.getElementById('stat-size').textContent = (total/1048576).toFixed(2) + " MB";
     };
 
-    window.triggerUpload = () => document.getElementById('file-input').click();
+    window.triggerUpload = () => {
+        if (!user) return showToast("WAITING_FOR_AUTH_HANDSHAKE...");
+        document.getElementById('file-input').click();
+    };
     
     document.getElementById('file-input').onchange = async (e) => {
         if (!user) return showToast("ERR: UNAUTHORIZED");
         const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
         setLoading(true, "INJECTING_FRAGMENTS...");
         
-        for (const f of files) {
-            const reader = new FileReader();
-            reader.readAsDataURL(f);
-            reader.onload = async () => {
-                const id = crypto.randomUUID();
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id);
-                await setDoc(docRef, {
-                    name: f.name, size: f.size, type: f.type, data: reader.result, ts: Date.now()
-                });
-            };
+        try {
+            for (const f of files) {
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const id = crypto.randomUUID();
+                    // Strictly following path rules: /artifacts/{appId}/public/data/{collectionName}
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id);
+                    await setDoc(docRef, {
+                        name: f.name, 
+                        size: f.size, 
+                        type: f.type, 
+                        data: reader.result, 
+                        ts: Date.now(),
+                        owner: user.uid
+                    });
+                };
+                reader.readAsDataURL(f);
+            }
+            showToast("FRAGMENT_INJECTION_SUCCESS");
+        } catch (error) {
+            console.error(error);
+            showToast("ERR: INJECTION_FAILED");
+        } finally {
+            setTimeout(() => setLoading(false), 1000);
+            e.target.value = ""; // Reset input
         }
-        setTimeout(() => { setLoading(false); showToast("FRAGMENT_INJECTION_SUCCESS"); }, 1000);
     };
 
     window.openAsset = (id) => {
@@ -427,17 +459,22 @@
         if(!a) return;
         document.getElementById('modal-name').textContent = `DATA_OBJ: ${a.name}`;
         const preview = document.getElementById('modal-preview');
-        preview.innerHTML = a.type.startsWith('image/') ? `<img src="${a.data}" style="max-width:100%; border:1px solid var(--matrix-green)">` : `[BINARY_BLOB]`;
+        preview.innerHTML = a.type.startsWith('image/') ? `<img src="${a.data}" style="max-width:100%; max-height: 300px; border:1px solid var(--matrix-green)">` : `<div style="padding: 20px; border: 1px dashed var(--matrix-green)">[ BINARY_BLOB: ${a.type} ]</div>`;
         
         document.getElementById('btn-dl').onclick = () => {
             const link = document.createElement('a'); link.href = a.data; link.download = a.name; link.click();
         };
         document.getElementById('btn-del').onclick = async () => {
             setLoading(true, "PURGING_SECTOR...");
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id));
-            closeModal();
-            setLoading(false);
-            showToast("SECTOR_WIPE_COMPLETE");
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grid_assets', id));
+                closeModal();
+                showToast("SECTOR_WIPE_COMPLETE");
+            } catch (err) {
+                showToast("ERR: PURGE_FAILED");
+            } finally {
+                setLoading(false);
+            }
         };
         document.getElementById('modal-overlay').classList.add('open');
     };
@@ -452,7 +489,7 @@
         document.getElementById('loading').style.display = v ? 'flex' : 'none';
     };
 </script>
- <script type="module">
+     <script type="module">
   // Import the functions you need from the SDKs you need
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
